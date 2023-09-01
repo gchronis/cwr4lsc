@@ -27,7 +27,7 @@ for decade in np.arange(1910, 2009, 10):
                       sequence_length=args.seqlen,
                       pretrained_weights=args.bertdir,
                       coha_dir=args.cohadir,
-                      output_path='{}/concat/usages_16_len{}_{}.dict'.format(args.outdir, args.seqlen, decade),
+                      #output_path='{}/concat/usages_16_len{}_{}.dict'.format(args.outdir, args.seqlen, decade),
                       buffer_size=args.buffer)
 
     # # Save usages

@@ -7,6 +7,11 @@ from tqdm import tqdm
 from collections import defaultdict
 from transformers import BertModel, BertTokenizer
 
+"""
+added by gchronis
+"""
+import re
+
 
 def get_context(token_ids, target_position, sequence_length=128):
     """
@@ -80,74 +85,96 @@ def collect_from_coha(target_words,
     for T, decade in enumerate(decades):
         # one time interval at a time
         print('Decade {}...'.format(decade))
-        with open('{}/all_{}.txt'.format(coha_dir, decade), 'r') as f:
-            lines = f.readlines()
 
-        for L, line in enumerate(lines):
 
-            # tokenize line and convert to token ids
-            tokens = tokenizer.encode(line)
+        ### gabriella changes
+        ### my coha is organized differently. 
+        ### the decades have random numbers for the alphabet index places , so i have to use regex
+        ### to ignore that. 
+        print(coha_dir)
+        print(decade)
+        my_regex = r'text_' + re.escape(str(decade)) + 's.*'
 
-            for pos, token in enumerate(tokens):
+        # iterate through directories
+        for decade_dir in os.listdir(coha_dir):
 
-                # store usage info of target words only
-                if token in i2w:
+            if re.match(my_regex, decade_dir):
+                # get all the text files for that decade
+                # iterate through text files for this decade
+                for filename in os.listdir(os.path.join(coha_dir, decade_dir)):
+                    print(filename)
+                    with open(os.path.join(coha_dir, decade_dir, filename), 'r') as f:
+                        lines = f.readlines()
+                        print("gets here")
 
-                    context_ids, pos_in_context = get_context(tokens, pos, sequence_length)
-                    input_ids = [101] + context_ids + [102]
+                        # get the usages from this file
+                        for L, line in enumerate(lines):
 
-                    # convert later to save storage space
-                    # snippet = tokenizer.convert_ids_to_tokens(context_ids)
+                            # tokenize line and convert to token ids
+                            tokens = tokenizer.encode(line)
 
-                    # add usage info to buffers
-                    batch_input_ids.append(input_ids)
-                    batch_tokens.append(i2w[token])
-                    batch_pos.append(pos_in_context)
-                    batch_snippets.append(context_ids)
-                    batch_decades.append(decade)
+                            for pos, token in enumerate(tokens):
 
-                # if the buffers are full...             or if we're at the end of the dataset
-                if (len(batch_input_ids) >= buffer_size) or (L == len(lines) - 1 and T == len(decades) - 1):
+                                # store usage info of target words only
+                                if token in i2w:
 
-                    with torch.no_grad():
-                        # collect list of input ids into a single batch tensor
-                        input_ids_tensor = torch.tensor(batch_input_ids)
-                        if torch.cuda.is_available():
-                            input_ids_tensor = input_ids_tensor.to('cuda')
+                                    context_ids, pos_in_context = get_context(tokens, pos, sequence_length)
+                                    input_ids = [101] + context_ids + [102]
 
-                        # run usages through language model
-                        outputs = model(input_ids_tensor)
-                        if torch.cuda.is_available():
-                            hidden_states = [l.detach().cpu().clone().numpy() for l in outputs[2]]
-                        else:
-                            hidden_states = [l.clone().numpy() for l in outputs[2]]
+                                    # convert later to save storage space
+                                    # snippet = tokenizer.convert_ids_to_tokens(context_ids)
 
-                        # get usage vectors from hidden states
-                        hidden_states = np.stack(hidden_states)  # (13, B, |s|, 768)
-                        # print('Expected hidden states size: (13, B, |s|, 768). Got {}'.format(hidden_states.shape))
-                        # usage_vectors = np.sum(hidden_states, 0)  # (B, |s|, 768)
-                        # usage_vectors = hidden_states.view(hidden_states.shape[1],
-                        #                                    hidden_states.shape[2],
-                        #                                    -1)
-                        usage_vectors = np.sum(hidden_states[1:, :, :, :], axis=0)
-                        # usage_vectors = hidden_states.reshape((hidden_states.shape[1], hidden_states.shape[2], -1))
+                                    # add usage info to buffers
+                                    batch_input_ids.append(input_ids)
+                                    batch_tokens.append(i2w[token])
+                                    batch_pos.append(pos_in_context)
+                                    batch_snippets.append(context_ids)
+                                    batch_decades.append(decade)
 
-                    if output_path and os.path.exists(output_path):
-                        with open(output_path, 'rb') as f:
-                            usages = pickle.load(f)
+                                # if the buffers are full...             or if we're at the end of the dataset
+                                if (len(batch_input_ids) >= buffer_size) or (L == len(lines) - 1 and T == len(decades) - 1):
 
-                    # store usage tuples in a dictionary: lemma -> (vector, snippet, position, decade)
-                    for b in np.arange(len(batch_input_ids)):
-                        usage_vector = usage_vectors[b, batch_pos[b]+1, :]
-                        usages[batch_tokens[b]].append(
-                            (usage_vector, batch_snippets[b], batch_pos[b], batch_decades[b]))
+                                    with torch.no_grad():
+                                        # collect list of input ids into a single batch tensor
+                                        input_ids_tensor = torch.tensor(batch_input_ids)
+                                        if torch.cuda.is_available():
+                                            input_ids_tensor = input_ids_tensor.to('cuda')
 
-                    # finally, empty the batch buffers
-                    batch_input_ids, batch_tokens, batch_pos, batch_snippets, batch_decades = [], [], [], [], []
+                                        # run usages through language model
+                                        outputs = model(input_ids_tensor,  output_hidden_states=True )
+                                        print(outputs)
+                                        if torch.cuda.is_available():
+                                            hidden_states = [l.detach().cpu().clone().numpy() for l in outputs[2]]
+                                        else:
+                                            print("fjekl")
+                                            hidden_states = [l.clone().numpy() for l in outputs.hidden_states]
 
-                    # and store data incrementally
-                    if output_path:
-                        with open(output_path, 'wb') as f:
-                            pickle.dump(usages, file=f)
+                                        # get usage vectors from hidden states
+                                        hidden_states = np.stack(hidden_states)  # (13, B, |s|, 768)
+                                        # print('Expected hidden states size: (13, B, |s|, 768). Got {}'.format(hidden_states.shape))
+                                        # usage_vectors = np.sum(hidden_states, 0)  # (B, |s|, 768)
+                                        # usage_vectors = hidden_states.view(hidden_states.shape[1],
+                                        #                                    hidden_states.shape[2],
+                                        #                                    -1)
+                                        usage_vectors = np.sum(hidden_states[1:, :, :, :], axis=0)
+                                        # usage_vectors = hidden_states.reshape((hidden_states.shape[1], hidden_states.shape[2], -1))
+
+                                    if output_path and os.path.exists(output_path):
+                                        with open(output_path, 'rb') as f:
+                                            usages = pickle.load(f)
+
+                                    # store usage tuples in a dictionary: lemma -> (vector, snippet, position, decade)
+                                    for b in np.arange(len(batch_input_ids)):
+                                        usage_vector = usage_vectors[b, batch_pos[b]+1, :]
+                                        usages[batch_tokens[b]].append(
+                                            (usage_vector, batch_snippets[b], batch_pos[b], batch_decades[b]))
+
+                                    # finally, empty the batch buffers
+                                    batch_input_ids, batch_tokens, batch_pos, batch_snippets, batch_decades = [], [], [], [], []
+
+                                    # and store data incrementally
+                                    if output_path:
+                                        with open(output_path, 'wb') as f:
+                                            pickle.dump(usages, file=f)
 
     return usages
