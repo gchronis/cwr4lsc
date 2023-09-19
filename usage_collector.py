@@ -61,12 +61,15 @@ def collect_from_coha(target_words,
                      lemma -> [(vector, sentence, word_position, decade), (v, s, p, d), ...]
     """
 
+    print("target words: ", target_words)
+
     # load model and tokenizer
     tokenizer = BertTokenizer.from_pretrained(pretrained_weights)
     model = BertModel.from_pretrained(pretrained_weights)
     if torch.cuda.is_available():
         model.to('cuda')
 
+    ### THIS IS THE BROKEN BIT
     # build word-index vocabulary for target words
     i2w = {}
     for t, t_id in zip(target_words, tokenizer.encode(' '.join(target_words))):
